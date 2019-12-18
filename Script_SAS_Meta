@@ -1,0 +1,140 @@
+
+*"SCRIPT SAS META ANALYSES - ALLOMETRIC EXPONENET - UNESP-FCAP (BY R. RIVEROS)";
+DATA META;
+INPUT ID YEAR N CAT$ AGE X Y T LX LY W1 W2;
+DATALINES;
+27  2014  6  Chicks  28  1.20  540  21  0.080  2.73  36  1.28
+18  1971  1  Cockerels  540  2.31  464  22  0.364  2.67  1  0.04
+16  2013  4  Hens  196  1.13  369  21  0.053  2.57  16  0.57
+;
+PROC PRINT;
+RUN;
+
+
+*(1)FINDING OUTLIER, INFLUENCE AND LAVERAGE POINT (PER GROUP MS-CAT-TZ);
+PROC SGPLOT DATA=META;
+REG Y=LY X=LX / lineattrs=(color=RED THICKNESS=2);
+RUN;
+proc reg data=META;
+model LY=LX/r;
+output out=META1 student=studresids rstudent=sruddelresid cookd=cook;
+run;
+proc sort data=META1;
+by studresids;
+run;
+proc print data=META1;
+run;
+proc reg data=META1;
+model LY=LX/influence;
+output out=META2 h=laverage;
+run;
+proc print data=META2;
+run;
+
+PROC GLM DATA=META;
+CLASS CAT;
+MODEL Y=LY/SS3;
+LSMEANS CAT;RUN;
+
+*(2)CORRELATION ANALYSES (PEARSON);
+PROC CORR DATA=META NOMISS PLOTS=MATRIX PLOTS=SCATTER(ALPHA=.20 .30);
+VAR YEAR AGE X Y T;
+WITH YEAR AGE X Y T;
+RUN;
+
+*(3-OPTIONAL)PRINCIPAL COMPONENTS ANALYSES (PCA);
+proc corr;
+proc factor data=META score n=2 corr outstat=stuff rotate=none method=prin min=0.001;
+var YEAR AGE LX T;
+PROC SCORE DATA=META SCORE=stuff out=score;
+var YEAR AGE LX T;
+PROC PRINT DATA=SCORE;
+PROC PLOT;
+PLOT factor1*factor2=LY;
+run;
+
+proc princomp data=META
+n=2
+out=LY;
+var YEAR AGE BW T;
+run;
+proc plot data=META;
+plot Prin2*Prin1;
+run;
+
+*(4-OPTIONAL)FACTORIAL ANALYSES;
+
+PROC MIXED DATA=META PLOTS (UNPACK)=(BOXPLOT);
+CLASS CAT;                                    
+MODEL LY= CAT/HTYPE=3 solution INFLUENCE RESIDUAL; 
+*RANDOM TZ;                                                                           
+ODS OUTPUT "Influence Diagnostics"=DG;
+LSMEANS CAT;
+RUN;
+
+*(5)MULTIPLE REGRESION;
+PROC REG DATA=META;
+MODEL LY= YEAR AGE LX T;                                   
+OUTPUT OUT=EDG PREDICTED=YP RESIDUAL=RES STUDENT=RP RSTUDENT=RST H=LV;
+*LABEL YP="Val.Predito" RES="Residuo" RP="Res.Padron." RST="Res.Stud."  LV="Leverage"; 
+RUN;
+PROC PRINT DATA=EDG;
+RUN;
+
+
+***(To compare)Sauvante et al 2008;
+**Model with discrete predictor variable(s);
+*MODEL(4,5) Yijk=m + Si + tj + Stij + eijk;
+*where:
+Yijk=the dependent variable,
+µ=overall mean,
+Si=the random effect of the ith study, assumed ~iidN(0,σ2S),
+tj=the fixed effect of the jth level of factor τ,
+Stij=the random interaction between the ith study and the jth level of factor τ, assumed ~iidN(0,σ2), and
+eijk=the residual errors, assumed ~iidN(0,σ2e);
+PROC MIXED DATA = META CL COVTEST;
+CLASS ID LX;
+MODEL LY = LX; 
+RANDOM ID ID*LX; 
+LSMEANS LX;
+RUN;
+
+*(6)AMELIA ALMEIDA WEIGHTING THE DATA;
+
+PROC MIXED DATA = META COVTEST ;
+CLASS ID;
+WEIGHT W2;
+MODEL LY = LX /SOLUTION outp=Predictionset DDFM=RESIDUAL;
+RANDOM  intercept LX /TYPE=UN SUBJECT=ID SOLUTION;
+run;
+
+
+PROC GPLOT DATA=META;
+PLOT LY*LX/GRID;
+SYMBOL V=DOT I=NONE C=BLUE;
+RUN;
+PROC MEANS MEAN MIN MAX VAR DATA=META;
+VAR LY;
+CLASS ID;
+RUN;
+
+*(7)Analyses of cluster;
+proc cluster simple noeigen method=centroid rmsstd rsquare nonorm out=tree;
+id CAT;
+var X AGE;
+run;
+proc tree data=tree out=clus3 nclusters=3;
+id CAT;
+copy X AGE;
+proc sort; by cluster;
+
+proc print; by cluster;
+var CAT X AGE;
+run;
+
+
+
+proc fastclus radius=0 replace=full maxclusters=3 maxiter=20 list distance;
+id CAT;
+var X AGE;
+run;
